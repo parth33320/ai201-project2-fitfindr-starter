@@ -66,7 +66,25 @@ If the outfit input is empty or missing, it returns a descriptive error message 
 
 ### Additional Tools (if any)
 
+#### Tool 4: estimate_price_fairness
+**What it does:**
+Estimates whether an item's price is fair compared to similar listings in the dataset.
+
+**Input parameters:**
+- `item` (dict): The listing dictionary for the item to evaluate.
+
+**What it returns:**
+A string analysis comparing the item's price to the average of comparable items (matched by Brand, then Category/Styles).
+
+#### Tool 5: get_current_trends
+**What it does:**
+Fetches recent fashion trends from a persistent cache or via a fresh search if the cache is older than 7 days.
+
+**Input parameters:**
 None.
+
+**What it returns:**
+A list of current fashion trend strings.
 
 ---
 
@@ -76,13 +94,15 @@ None.
 The agent follows a deterministic linear pipeline for each query:
 1. **Initialize Session**: Create a state object to hold all data.
 2. **Parsing**: The agent first parses the natural language query into `description`, `size`, and `max_price` (using an LLM for robust extraction).
-3. **Search**: It calls `search_listings` with the parsed parameters.
+3. **Search with Retry**: It calls `search_listings`. If no results, it automatically retries by loosening filters in order: Style -> Price -> Size.
 4. **Conditional Branch**:
-   - If search results are empty: Set an error message and terminate the loop.
+   - If search results are STILL empty: Set an error message and terminate the loop.
    - If results are found: Pick the top-scoring item and proceed.
-5. **Suggest Outfit**: Call `suggest_outfit` with the selected item and the user's wardrobe.
-6. **Create Fit Card**: Call `create_fit_card` using the suggestion and item details.
-7. **Finalization**: Return the full session state to the UI.
+5. **Price Analysis**: Call `estimate_price_fairness` for the selected item.
+6. **Trends**: Call `get_current_trends` to fetch/cache recent fashion trends.
+7. **Suggest Outfit**: Call `suggest_outfit` with the item, wardrobe, and trends.
+8. **Create Fit Card**: Call `create_fit_card` using the suggestion and item details.
+9. **Finalization**: Return the full session state to the UI.
 
 ---
 
@@ -94,9 +114,12 @@ A `session` dictionary is used as the central state container.
 - `parsed`: The extracted filters used by `search_listings`.
 - `search_results`: The full list of matches.
 - `selected_item`: The specific item (top match) used for styling.
-- `wardrobe`: Passed in at the start, used by `suggest_outfit`.
+- `price_analysis`: Output from `estimate_price_fairness`.
+- `trend_insights`: List of trends from `get_current_trends`.
+- `wardrobe`: Loaded from database (Style Profile Memory), used by `suggest_outfit`.
 - `outfit_suggestion`: Output from `suggest_outfit`, used by `create_fit_card`.
 - `fit_card`: Final output string.
+- `modifications`: Tracks filter loosening during Retry Logic.
 - `error`: Tracks if the process should stop early.
 
 ---

@@ -21,7 +21,7 @@ Usage (once implemented):
 import json
 import os
 from groq import Groq
-from tools import search_listings, suggest_outfit, create_fit_card, _get_groq_client
+from tools import search_listings, suggest_outfit, create_fit_card, _get_groq_client, estimate_price_fairness, get_current_trends
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -41,10 +41,13 @@ def _new_session(query: str, wardrobe: dict) -> dict:
         "parsed": {},                # extracted description / size / max_price
         "search_results": [],        # list of matching listing dicts
         "selected_item": None,       # top result, passed into suggest_outfit
+        "price_analysis": None,      # string returned by estimate_price_fairness
         "wardrobe": wardrobe,        # user's wardrobe dict
         "outfit_suggestion": None,   # string returned by suggest_outfit
         "fit_card": None,            # string returned by create_fit_card
+        "trend_insights": None,      # string returned by get_current_trends
         "error": None,               # set if the interaction ended early
+        "modifications": [],         # track changes made to filters during retry
     }
 
 
@@ -94,28 +97,57 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         session["error"] = f"Failed to parse query: {str(e)}"
         return session
 
-    # Step 3: Call search_listings()
+    # Step 3: Call search_listings() with Retry Logic
     description = session["parsed"].get("description", "")
     size = session["parsed"].get("size")
     max_price = session["parsed"].get("max_price")
 
+    # Initial search
     results = search_listings(description, size, max_price)
+
+    # Retry Loop: Style -> Price -> Size -> Brand
+    # Since our search_listings handles style tags via the description query,
+    # we first try loosening the description if it's too specific.
+
+    if not results:
+        # 1. Loosen Style (Assume description might be too specific)
+        session["modifications"].append("broadened style keywords")
+        # Simplify description to just the first two words (often category/main item)
+        simple_desc = " ".join(description.split()[:2])
+        results = search_listings(simple_desc, size, max_price)
+
+        if not results:
+            # 2. Loosen Price
+            session["modifications"].append("removed price limit")
+            results = search_listings(simple_desc, size, None)
+
+            if not results:
+                # 3. Loosen Size
+                session["modifications"].append("removed size filter")
+                results = search_listings(simple_desc, None, None)
+
     session["search_results"] = results
 
     if not results:
-        session["error"] = f"No results found for '{description}' with your filters. Try a broader search!"
+        session["error"] = f"No results found for '{description}' even after loosening filters. Try a different search!"
         return session
 
     # Step 4: Select the item (top result)
     session["selected_item"] = results[0]
 
-    # Step 5: Call suggest_outfit()
-    session["outfit_suggestion"] = suggest_outfit(session["selected_item"], wardrobe)
+    # Step 5: Call estimate_price_fairness()
+    session["price_analysis"] = estimate_price_fairness(session["selected_item"])
 
-    # Step 6: Call create_fit_card()
+    # Step 6: Call get_current_trends()
+    session["trend_insights"] = get_current_trends()
+
+    # Step 7: Call suggest_outfit()
+    session["outfit_suggestion"] = suggest_outfit(session["selected_item"], wardrobe, trends=session["trend_insights"])
+
+    # Step 8: Call create_fit_card()
     session["fit_card"] = create_fit_card(session["outfit_suggestion"], session["selected_item"])
 
-    # Step 7: Return the session
+    # Step 9: Return the session
     return session
 
 

@@ -6,10 +6,40 @@ the files each time.
 
 import json
 import os
+import sqlite3
 from typing import Optional
 
 # Resolve the path to the data directory relative to this file
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+DB_PATH = "fitfindr.db"
+
+def init_db():
+    """Initialize the SQLite database if it doesn't exist."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Table for wardrobes
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS wardrobes (
+        user_id TEXT PRIMARY KEY,
+        wardrobe_json TEXT
+    )
+    ''')
+
+    # Table for trends
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS trends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fetch_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        trends_json TEXT
+    )
+    ''')
+
+    conn.commit()
+    conn.close()
+
+# Initialize DB on module load
+init_db()
 
 
 def load_listings() -> list[dict]:
@@ -70,6 +100,54 @@ def get_empty_wardrobe() -> dict:
     """
     schema = load_wardrobe_schema()
     return schema["empty_wardrobe"]
+
+
+def save_wardrobe(user_id: str, wardrobe: dict):
+    """Save wardrobe to SQLite database."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO wardrobes (user_id, wardrobe_json) VALUES (?, ?)",
+        (user_id, json.dumps(wardrobe))
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_wardrobe(user_id: str) -> Optional[dict]:
+    """Load wardrobe from SQLite database."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT wardrobe_json FROM wardrobes WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return json.loads(row[0])
+    return None
+
+
+def save_trends(trends: list[str]):
+    """Save trends to SQLite database."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO trends (trends_json) VALUES (?)",
+        (json.dumps(trends),)
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_latest_trends() -> Optional[tuple[str, list[str]]]:
+    """Load latest trends and their fetch date."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT fetch_date, trends_json FROM trends ORDER BY fetch_date DESC LIMIT 1")
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return row[0], json.loads(row[1])
+    return None
 
 
 # --- Quick sanity check ---
