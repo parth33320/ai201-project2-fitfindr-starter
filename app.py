@@ -20,25 +20,37 @@ from utils.data_loader import get_example_wardrobe, get_empty_wardrobe
 
 # ── query handler ─────────────────────────────────────────────────────────────
 
-def handle_query(user_query: str, wardrobe_choice: str) -> tuple[str, str, str]:
+from utils.data_loader import save_wardrobe, load_wardrobe
+
+def handle_query(user_query: str, wardrobe_choice: str, user_id: str = "default_user") -> tuple[str, str, str, str, str]:
     """
     Called by Gradio when the user submits a query.
     """
     if not user_query or not user_query.strip():
-        return "Please enter a search query.", "", ""
+        return "Please enter a search query.", "", "", "", ""
 
-    if wardrobe_choice == "Example wardrobe":
+    # Persistent wardrobe logic
+    wardrobe = load_wardrobe(user_id)
+    if not wardrobe or wardrobe_choice == "Reset to Example":
         wardrobe = get_example_wardrobe()
-    else:
+        save_wardrobe(user_id, wardrobe)
+    elif wardrobe_choice == "Reset to Empty":
         wardrobe = get_empty_wardrobe()
+        save_wardrobe(user_id, wardrobe)
 
     session = run_agent(user_query, wardrobe)
 
     if session["error"]:
-        return session["error"], "", ""
+        return session["error"], "", "", "", ""
 
     item = session["selected_item"]
+
+    mod_text = ""
+    if session["modifications"]:
+        mod_text = f"⚠️ Note: We couldn't find an exact match, so we {', '.join(session['modifications'])} to find this for you!\n\n"
+
     listing_text = (
+        f"{mod_text}"
         f"Title: {item['title']}\n"
         f"Price: ${item['price']}\n"
         f"Platform: {item['platform']}\n"
@@ -47,7 +59,9 @@ def handle_query(user_query: str, wardrobe_choice: str) -> tuple[str, str, str]:
         f"Description: {item['description']}"
     )
 
-    return listing_text, session["outfit_suggestion"], session["fit_card"]
+    trend_text = "Current Fashion Trends:\n- " + "\n- ".join(session["trend_insights"][:5])
+
+    return listing_text, session["price_analysis"], session["outfit_suggestion"], trend_text, session["fit_card"]
 
 
 # ── interface ─────────────────────────────────────────────────────────────────
@@ -69,53 +83,68 @@ Describe what you're looking for — include size and price if you want to filte
         """)
 
         with gr.Row():
-            query_input = gr.Textbox(
-                label="What are you looking for?",
-                placeholder="e.g. vintage graphic tee under $30, size M",
-                lines=2,
-                scale=3,
-            )
-            wardrobe_choice = gr.Radio(
-                choices=["Example wardrobe", "Empty wardrobe (new user)"],
-                value="Example wardrobe",
-                label="Wardrobe",
-                scale=1,
-            )
+            with gr.Column(scale=3):
+                query_input = gr.Textbox(
+                    label="What are you looking for?",
+                    placeholder="e.g. vintage graphic tee under $30, size M",
+                    lines=2,
+                )
+            with gr.Column(scale=1):
+                user_id = gr.Textbox(label="User ID (for style memory)", value="default_user")
+                wardrobe_choice = gr.Radio(
+                    choices=["Use Saved", "Reset to Example", "Reset to Empty"],
+                    value="Use Saved",
+                    label="Wardrobe Management",
+                )
 
         submit_btn = gr.Button("Find it", variant="primary")
 
         with gr.Row():
             listing_output = gr.Textbox(
                 label="🛍️ Top listing found",
-                lines=8,
+                lines=10,
                 interactive=False,
             )
+            price_output = gr.Textbox(
+                label="💰 Price Analysis",
+                lines=10,
+                interactive=False,
+            )
+
+        with gr.Row():
             outfit_output = gr.Textbox(
                 label="👗 Outfit idea",
-                lines=8,
+                lines=10,
                 interactive=False,
             )
+            trend_output = gr.Textbox(
+                label="📈 Trend Insights",
+                lines=10,
+                interactive=False,
+            )
+
+        with gr.Row():
             fitcard_output = gr.Textbox(
                 label="✨ Your fit card",
-                lines=8,
+                lines=5,
                 interactive=False,
             )
 
         gr.Examples(
-            examples=[[q, "Example wardrobe"] for q in EXAMPLE_QUERIES],
-            inputs=[query_input, wardrobe_choice],
+            examples=[[q, "Use Saved", "default_user"] for q in EXAMPLE_QUERIES],
+            inputs=[query_input, wardrobe_choice, user_id],
             label="Try these queries",
         )
 
         submit_btn.click(
             fn=handle_query,
-            inputs=[query_input, wardrobe_choice],
-            outputs=[listing_output, outfit_output, fitcard_output],
+            inputs=[query_input, wardrobe_choice, user_id],
+            outputs=[listing_output, price_output, outfit_output, trend_output, fitcard_output],
         )
         query_input.submit(
             fn=handle_query,
-            inputs=[query_input, wardrobe_choice],
-            outputs=[listing_output, outfit_output, fitcard_output],
+            inputs=[query_input, wardrobe_choice, user_id],
+            outputs=[listing_output, price_output, outfit_output, trend_output, fitcard_output],
         )
 
     return demo

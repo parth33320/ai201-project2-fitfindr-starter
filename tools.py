@@ -98,7 +98,7 @@ def search_listings(
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
 
-def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
+def suggest_outfit(new_item: dict, wardrobe: dict, trends: list[str] | None = None) -> str:
     """
     Given a thrifted item and the user's wardrobe, suggest 1–2 complete outfits.
 
@@ -106,6 +106,7 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
         new_item: A listing dict (the item the user is considering buying).
         wardrobe: A wardrobe dict with an 'items' key containing a list of
                   wardrobe item dicts. May be empty — handle this gracefully.
+        trends:   Optional list of current fashion trends to incorporate.
 
     Returns:
         A non-empty string with outfit suggestions.
@@ -124,12 +125,18 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
     items = wardrobe.get("items", [])
 
+    trend_context = ""
+    if trends:
+        trend_context = "Current fashion trends: " + ", ".join(trends) + "\n\n"
+
     if not items:
         prompt = (
+            f"{trend_context}"
             f"I just found this item secondhand:\n\n{item_info}\n\n"
             "My wardrobe is currently empty. Can you give me some general styling "
             "advice for this piece? What types of items would it pair well with, "
-            "and what kind of vibe does it have?"
+            "and what kind of vibe does it have? "
+            "Incorporate relevant current trends if they fit the vibe!"
         )
     else:
         wardrobe_info = "\n".join([
@@ -137,11 +144,13 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
             for item in items
         ])
         prompt = (
+            f"{trend_context}"
             f"I just found this item secondhand:\n\n{item_info}\n\n"
             "And here is my current wardrobe:\n"
             f"{wardrobe_info}\n\n"
             "Please suggest 1-2 complete outfits using the new item and specific "
-            "pieces from my wardrobe. Be creative but keep the style cohesive!"
+            "pieces from my wardrobe. Be creative but keep the style cohesive! "
+            "Try to lean into current trends if they match the style of the item and wardrobe."
         )
 
     chat_completion = client.chat.completions.create(
@@ -211,3 +220,143 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     )
 
     return chat_completion.choices[0].message.content.strip().replace('"', '')
+
+
+# ── Tool 4: estimate_price_fairness ──────────────────────────────────────────
+
+def estimate_price_fairness(item: dict) -> str:
+    """
+    Estimate whether the price of an item is fair based on comparable listings.
+    Comparability is determined by Brand, then Category, then Style Tags.
+
+    Args:
+        item: The listing dict for the item to evaluate.
+
+    Returns:
+        A string describing the price analysis (e.g., "This item is a steal!").
+    """
+    all_listings = load_listings()
+    comparables = []
+
+    # 1. Try to find items with the same brand
+    if item.get("brand"):
+        comparables = [
+            l for l in all_listings
+            if l.get("brand") == item["brand"] and l["id"] != item["id"]
+        ]
+
+    # 2. If few brand matches, look at Category + Style Tags
+    if len(comparables) < 3:
+        category_matches = [
+            l for l in all_listings
+            if l["category"] == item["category"] and l["id"] != item["id"]
+        ]
+
+        style_matches = [
+            l for l in category_matches
+            if any(tag in item["style_tags"] for tag in l["style_tags"])
+        ]
+
+        # Combine brand matches with style/category matches, avoiding duplicates
+        seen_ids = {l["id"] for l in comparables}
+        for l in style_matches:
+            if l["id"] not in seen_ids:
+                comparables.append(l)
+                seen_ids.add(l["id"])
+
+        # 3. If still few, add general category matches
+        if len(comparables) < 3:
+            for l in category_matches:
+                if l["id"] not in seen_ids:
+                    comparables.append(l)
+                    seen_ids.add(l["id"])
+
+    if not comparables:
+        return "Not enough comparable data to estimate price fairness."
+
+    avg_price = sum(l["price"] for l in comparables) / len(comparables)
+    item_price = item["price"]
+
+    ratio = item_price / avg_price
+
+    if ratio < 0.8:
+        rating = "a STEAL! 💎"
+    elif ratio < 1.1:
+        rating = "FAIR. ✅"
+    elif ratio < 1.3:
+        rating = "slightly ABOVE average. ⚠️"
+    else:
+        rating = "HIGH compared to similar items. 💸"
+
+    analysis = (
+        f"This item is priced at ${item_price:.2f}. "
+        f"Similar items (based on {item.get('brand') or item['category']}) "
+        f"average around ${avg_price:.2f}. "
+        f"We consider this price to be {rating}"
+    )
+
+    return analysis
+
+
+# ── Tool 5: get_current_trends ───────────────────────────────────────────────
+
+def get_current_trends() -> list[str]:
+    """
+    Fetch current fashion trends. Checks database first for recent trends
+    (last 7 days). If none, performs a simulated google search and updates database.
+
+    Returns:
+        A list of trend strings.
+    """
+    from utils.data_loader import load_latest_trends, save_trends
+    from datetime import datetime, timedelta
+
+    latest = load_latest_trends()
+    if latest:
+        fetch_date_str, trends = latest
+        # fetch_date is usually in format 'YYYY-MM-DD HH:MM:SS'
+        fetch_date = datetime.strptime(fetch_date_str, "%Y-%m-%d %H:%M:%S")
+        if datetime.now() - fetch_date < timedelta(days=7):
+            return trends
+
+    # If no recent trends, simulate a search and use LLM to extract trends
+    client = _get_groq_client()
+
+    # We use a system prompt that encourages the LLM to provide 'current' (2024-2025)
+    # trends as if it just searched the web.
+    prompt = (
+        "Perform a simulated web search for 'top fashion trends 2025'. "
+        "Based on your knowledge of current and forecasted trends, "
+        "return a JSON list of 8-12 specific fashion trends (e.g., 'Boho Suede', 'Burgundy tones'). "
+        "Return ONLY the JSON list of strings."
+    )
+
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a trend forecaster that returns JSON lists.",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        model="llama-3.3-70b-versatile",
+        response_format={"type": "json_object"},
+    )
+
+    import json
+    try:
+        data = json.loads(chat_completion.choices[0].message.content)
+        # Handle both {"trends": [...]} and [...] if the LLM is slightly off
+        if isinstance(data, dict):
+            trends = data.get("trends", list(data.values())[0])
+        else:
+            trends = data
+    except Exception:
+        # Fallback if parsing fails
+        trends = ["Boho Chic", "Burgundy", "Denim on denim", "Animal Print", "Polo Shirts"]
+
+    save_trends(trends)
+    return trends
