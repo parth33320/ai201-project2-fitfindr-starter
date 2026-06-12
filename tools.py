@@ -13,6 +13,7 @@ Tools:
 """
 
 import os
+import statistics
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -226,76 +227,145 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
 
 def estimate_price_fairness(item: dict) -> str:
     """
-    Estimate whether the price of an item is fair based on comparable listings.
-    Comparability is determined by Brand, then Category, then Style Tags.
-
-    Args:
-        item: The listing dict for the item to evaluate.
-
-    Returns:
-        A string describing the price analysis (e.g., "This item is a steal!").
+    Estimate price fairness using fine-grained product detection and a
+    two-tier outlier-protected pricing strategy.
     """
     all_listings = load_listings()
-    comparables = []
 
-    # 1. Try to find items with the same brand
-    if item.get("brand"):
-        comparables = [
-            l for l in all_listings
-            if l.get("brand") == item["brand"] and l["id"] != item["id"]
-        ]
+    # 1. FINE-GRAINED PRODUCT DETECTION
+    keywords = [
+        "jean", "hoodie", "sweatshirt", "shorts", "belt", "boot",
+        "skirt", "tee", "shirt", "jacket", "coat", "dress", "sneaker"
+    ]
 
-    # 2. If few brand matches, look at Category + Style Tags
-    if len(comparables) < 3:
-        category_matches = [
-            l for l in all_listings
-            if l["category"] == item["category"] and l["id"] != item["id"]
-        ]
+    # Mapping for dynamic phrasing
+    keyword_phrasing = {
+        "jean": ("These jeans", "jeans"),
+        "hoodie": ("This hoodie", "hoodies"),
+        "sweatshirt": ("This sweatshirt", "sweatshirts"),
+        "shorts": ("These shorts", "shorts"),
+        "belt": ("This belt", "belts"),
+        "boot": ("These boots", "boots"),
+        "skirt": ("This skirt", "skirts"),
+        "tee": ("This tee", "tees"),
+        "shirt": ("This shirt", "shirts"),
+        "jacket": ("This jacket", "jackets"),
+        "coat": ("This coat", "coats"),
+        "dress": ("This dress", "dresses"),
+        "sneaker": ("These sneakers", "sneakers")
+    }
 
-        style_matches = [
-            l for l in category_matches
-            if any(tag in item["style_tags"] for tag in l["style_tags"])
-        ]
+    category_phrasing = {
+        "tops": ("This top", "tops"),
+        "bottoms": ("These bottoms", "bottoms"),
+        "outerwear": ("This outerwear", "outerwear pieces"),
+        "shoes": ("These shoes", "shoes"),
+        "accessories": ("This accessory", "accessories")
+    }
 
-        # Combine brand matches with style/category matches, avoiding duplicates
-        seen_ids = {l["id"] for l in comparables}
-        for l in style_matches:
-            if l["id"] not in seen_ids:
-                comparables.append(l)
-                seen_ids.add(l["id"])
+    def detect_type(listing):
+        title = listing.get("title", "").lower()
+        description = listing.get("description", "").lower()
 
-        # 3. If still few, add general category matches
-        if len(comparables) < 3:
-            for l in category_matches:
-                if l["id"] not in seen_ids:
-                    comparables.append(l)
-                    seen_ids.add(l["id"])
+        # Check title first
+        best_kw = None
+        max_pos = -1
+        for kw in keywords:
+            pos = title.rfind(kw)
+            if pos != -1:
+                end_pos = pos + len(kw)
+                if end_pos > max_pos:
+                    max_pos = end_pos
+                    best_kw = kw
 
-    if not comparables:
-        return "Not enough comparable data to estimate price fairness."
+        if best_kw:
+            return best_kw
 
-    avg_price = sum(l["price"] for l in comparables) / len(comparables)
-    item_price = item["price"]
+        # Check description
+        for kw in keywords:
+            pos = description.rfind(kw)
+            if pos != -1:
+                end_pos = pos + len(kw)
+                if end_pos > max_pos:
+                    max_pos = end_pos
+                    best_kw = kw
 
-    ratio = item_price / avg_price
+        return best_kw
 
-    if ratio < 0.8:
-        rating = "a STEAL! 💎"
-    elif ratio < 1.1:
-        rating = "FAIR. ✅"
-    elif ratio < 1.3:
-        rating = "slightly ABOVE average. ⚠️"
+    detected_type = detect_type(item)
+
+    # Gather items matching the detected type (or fallback to category)
+    if detected_type:
+        match_items = [l for l in all_listings if detect_type(l) == detected_type and l["id"] != item["id"]]
+        display_singular, display_plural = keyword_phrasing[detected_type]
     else:
-        rating = "HIGH compared to similar items. 💸"
+        match_items = [l for l in all_listings if l["category"] == item["category"] and l["id"] != item["id"]]
+        display_singular, display_plural = category_phrasing.get(item["category"], ("This item", "similar items"))
 
-    analysis = (
-        f"This item is priced at ${item_price:.2f}. "
-        f"Similar items (based on {item.get('brand') or item['category']}) "
-        f"average around ${avg_price:.2f}. "
+    # 2. FILTER ALL LISTINGS & APPLY OUTLIER PROTECTION
+    def get_clean_average(items):
+        if not items:
+            return None
+        prices = sorted([l["price"] for l in items])
+        if not prices:
+            return None
+
+        med = statistics.median(prices)
+        clean_prices = [p for p in prices if (med * 0.2) <= p <= (med * 3.0)]
+
+        if not clean_prices:
+            return None
+        return sum(clean_prices) / len(clean_prices)
+
+    # 3. TWO-TIER PRICING STRATEGY
+    baseline_avg = None
+    baseline_msg = ""
+    item_brand = (item.get("brand") or "").lower()
+
+    # Tier 1: Brand Status Premium
+    if item_brand:
+        brand_matches = [l for l in match_items if (l.get("brand") or "").lower() == item_brand]
+        if len(brand_matches) >= 2:
+            baseline_avg = get_clean_average(brand_matches)
+            if baseline_avg is not None:
+                brand_name = item.get("brand") # Use original casing for display
+                baseline_msg = f"Comparable {brand_name} {display_plural} in our database"
+
+    # Tier 2: Market-wide Fallback
+    if baseline_avg is None:
+        baseline_avg = get_clean_average(match_items)
+        if baseline_avg is not None:
+            baseline_msg = f"Comparable {display_plural} across the marketplace"
+
+    # Global Category Fallback if Tier 1 and 2 failed
+    if baseline_avg is None:
+        cat_matches = [l for l in all_listings if l["category"] == item["category"] and l["id"] != item["id"]]
+        baseline_avg = get_clean_average(cat_matches)
+        if baseline_avg is not None:
+            _, cat_plural = category_phrasing.get(item["category"], ("", "similar items"))
+            baseline_msg = f"Comparable {cat_plural} across the marketplace"
+
+    if baseline_avg is None:
+        return "This item's value is unique, and we don't have enough marketplace data to evaluate price fairness yet."
+
+    # 4. DYNAMIC FAIRNESS RATING
+    item_price = item["price"]
+    ratio = item_price / baseline_avg
+
+    if ratio <= 0.8:
+        rating = "a steal! 💎"
+    elif ratio <= 1.2:
+        rating = "fairly priced. 👍"
+    else:
+        rating = "expensive compared to market value. 💸"
+
+    # 5. RETURN STRING FORMAT
+    return (
+        f"{display_singular} {'are' if display_singular.startswith('These') else 'is'} "
+        f"priced at ${item_price:.2f}. "
+        f"{baseline_msg} average around ${baseline_avg:.2f}. "
         f"We consider this price to be {rating}"
     )
-
-    return analysis
 
 
 # ── Tool 5: get_current_trends ───────────────────────────────────────────────
