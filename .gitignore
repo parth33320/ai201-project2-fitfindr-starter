@@ -15,3 +15,7 @@ env/
 # macOS
 .DS_Store
 fitfindr.db
+
+# Demo assets
+demo_assets/
+fitfindr_demo.mp4

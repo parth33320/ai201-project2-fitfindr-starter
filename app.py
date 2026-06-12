@@ -12,6 +12,7 @@ Then open the localhost URL shown in your terminal (usually http://localhost:786
 but check your terminal — the port may differ).
 """
 
+import os
 import gradio as gr
 
 from agent import run_agent
@@ -22,12 +23,12 @@ from utils.data_loader import get_example_wardrobe, get_empty_wardrobe
 
 from utils.data_loader import save_wardrobe, load_wardrobe
 
-def handle_query(user_query: str, wardrobe_choice: str, user_id: str = "default_user") -> tuple[str, str, str, str, str]:
+def handle_query(user_query: str, wardrobe_choice: str, user_id: str = "default_user") -> tuple[str, str, str, str, str, dict]:
     """
     Called by Gradio when the user submits a query.
     """
     if not user_query or not user_query.strip():
-        return "Please enter a search query.", "", "", "", ""
+        return "Please enter a search query.", "", "", "", "", {}
 
     # Persistent wardrobe logic
     wardrobe = load_wardrobe(user_id)
@@ -41,7 +42,7 @@ def handle_query(user_query: str, wardrobe_choice: str, user_id: str = "default_
     session = run_agent(user_query, wardrobe)
 
     if session["error"]:
-        return session["error"], "", "", "", ""
+        return session["error"], "", "", "", "", session
 
     item = session["selected_item"]
 
@@ -61,7 +62,7 @@ def handle_query(user_query: str, wardrobe_choice: str, user_id: str = "default_
 
     trend_text = "Current Fashion Trends:\n- " + "\n- ".join(session["trend_insights"][:5])
 
-    return listing_text, session["price_analysis"], session["outfit_suggestion"], trend_text, session["fit_card"]
+    return listing_text, session["price_analysis"], session["outfit_suggestion"], trend_text, session["fit_card"], session
 
 
 # ── interface ─────────────────────────────────────────────────────────────────
@@ -130,6 +131,12 @@ Describe what you're looking for — include size and price if you want to filte
                 interactive=False,
             )
 
+        show_debug = os.environ.get("FITFINDR_DEBUG", "false").lower() == "true"
+        with gr.Row(visible=show_debug):
+            debug_panel = gr.JSON(
+                label="🛠️ Session Log / Debug Panel (Internal State)",
+            )
+
         gr.Examples(
             examples=[[q, "Use Saved", "default_user"] for q in EXAMPLE_QUERIES],
             inputs=[query_input, wardrobe_choice, user_id],
@@ -139,12 +146,12 @@ Describe what you're looking for — include size and price if you want to filte
         submit_btn.click(
             fn=handle_query,
             inputs=[query_input, wardrobe_choice, user_id],
-            outputs=[listing_output, price_output, outfit_output, trend_output, fitcard_output],
+            outputs=[listing_output, price_output, outfit_output, trend_output, fitcard_output, debug_panel],
         )
         query_input.submit(
             fn=handle_query,
             inputs=[query_input, wardrobe_choice, user_id],
-            outputs=[listing_output, price_output, outfit_output, trend_output, fitcard_output],
+            outputs=[listing_output, price_output, outfit_output, trend_output, fitcard_output, debug_panel],
         )
 
     return demo

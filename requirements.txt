@@ -2,3 +2,6 @@ groq==0.15.0
 python-dotenv==1.0.1
 gradio>=6.9.0
 pytest>=8.0.0
+gTTS>=2.2.4
+imageio-ffmpeg>=0.6.0
+playwright>=1.58.0
