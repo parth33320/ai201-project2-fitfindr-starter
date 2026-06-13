@@ -39,7 +39,7 @@ def handle_query(user_query: str, wardrobe_choice: str, user_id: str = "default_
         wardrobe = get_empty_wardrobe()
         save_wardrobe(user_id, wardrobe)
 
-    session = run_agent(user_query, wardrobe)
+    session = run_agent(user_query, wardrobe, user_id=user_id)
     item = session.get("selected_item")
 
     # Format professional debug panel JSON
