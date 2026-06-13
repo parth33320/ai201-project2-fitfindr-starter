@@ -13,6 +13,7 @@ Tools:
 """
 
 import os
+import re
 import statistics
 
 from dotenv import load_dotenv
@@ -71,9 +72,12 @@ def search_listings(
 
         filtered_listings.append(item)
 
-    # 2. Score by keyword overlap
+    # 2. Score by keyword overlap (STRICT AND matching)
     scored_listings = []
     query_keywords = description.lower().split()
+
+    if not query_keywords:
+        return []
 
     for item in filtered_listings:
         score = 0
@@ -84,11 +88,16 @@ def search_listings(
             " ".join(item["style_tags"])
         ).lower()
 
+        all_keywords_match = True
         for kw in query_keywords:
-            if kw in searchable_text:
-                score += 1
+            pattern = rf"\b{re.escape(kw.lower())}\b"
+            matches = re.findall(pattern, searchable_text)
+            if not matches:
+                all_keywords_match = False
+                break
+            score += len(matches)
 
-        if score > 0:
+        if all_keywords_match:
             scored_listings.append((score, item))
 
     # 3. Sort by score, highest first
