@@ -295,9 +295,11 @@ def estimate_price_fairness(item: dict) -> str:
         best_kw = None
         max_pos = -1
         for kw in keywords:
-            pos = title.rfind(kw)
-            if pos != -1:
-                end_pos = pos + len(kw)
+            pattern = rf"\b{re.escape(kw)}\b"
+            match = re.search(pattern, title)
+            if match:
+                pos = match.start()
+                end_pos = match.end()
                 if end_pos > max_pos:
                     max_pos = end_pos
                     best_kw = kw
@@ -307,9 +309,11 @@ def estimate_price_fairness(item: dict) -> str:
 
         # Check description
         for kw in keywords:
-            pos = description.rfind(kw)
-            if pos != -1:
-                end_pos = pos + len(kw)
+            pattern = rf"\b{re.escape(kw)}\b"
+            match = re.search(pattern, description)
+            if match:
+                pos = match.start()
+                end_pos = match.end()
                 if end_pos > max_pos:
                     max_pos = end_pos
                     best_kw = kw

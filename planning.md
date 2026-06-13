@@ -136,8 +136,8 @@ For each tool, describe the specific failure mode you're handling and what the a
 
 | Tool | Failure mode | Agent response |
 |------|-------------|----------------|
-| search_listings | No results match the query | Trigger fallback state machine. If still empty, set `session["error"]` and terminate. |
-| suggest_outfit | Wardrobe is empty | Inject `historical_preferences` and prompt LLM for trend-aware "general styling advice." |
+| search_listings | No results match the query | Trigger fallback state machine (Loosen Style -> Price -> Size). If still empty, set `session["error"]` to a helpful message and terminate. |
+| suggest_outfit | Wardrobe is empty | Inject `historical_preferences` from Style Profile and prompt LLM for trend-aware "general styling advice." |
 | estimate_price_fairness | Insufficient data | Return "This item's value is unique, and we don't have enough marketplace data... yet." |
 | create_fit_card | Outfit input is missing | Return "Could not generate fit card due to missing outfit details." |
 | get_current_trends | API/Cache failure | Fallback to a hardcoded list of stable trends (e.g., "Boho Chic", "Denim"). |
@@ -177,15 +177,14 @@ graph TD
 ## AI Tool Plan
 
 **Milestone 3 — Individual tool implementations:**
-- **search_listings**: Implemented manually with Python/Regex. Uses `re.findall` with `\b` boundaries for strict whole-word 'AND' matching across title, description, and tags.
-- **suggest_outfit**: Uses Groq (llama-3.3-70b). Dynamically builds a prompt based on wardrobe contents, historical tags, and trend insights. Extracts vibe tags using a standardized delimiter.
-- **create_fit_card**: Uses Groq with temperature 0.9. Prompted to generate a casual, authentic OOTD caption mentioning the item, price, and platform.
+- **search_listings**: I'll implement this manually using Python/Regex to ensure strict 'AND' whole-word matching.
+- **suggest_outfit**: I'll provide an LLM with the Tool 2 spec from `planning.md` (inputs, outputs, and failure modes) to generate the prompt engineering logic. I'll verify that it handles the empty wardrobe case by checking that the prompt incorporates `historical_preferences` and `trend_insights` when items are missing.
+- **create_fit_card**: I'll use an AI tool to generate the Groq API call, providing the Tool 3 spec. I'll verify the temperature is set high (0.9) to ensure variety in captions as per the rubric.
 
 **Milestone 4 — Planning loop and state management:**
-- **Query Parsing**: Groq-powered JSON extraction for `description`, `size`, and `max_price`.
-- **estimate_price_fairness**: Manual implementation. Uses `statistics.median` for outlier protection (20%-300% range) and a two-tier matching strategy (Brand+Type vs. Type-only).
-- **get_current_trends**: Implements a SQLite-backed cache with a 7-day TTL. Uses Groq to simulate web searches for trend refreshing.
-- **run_agent**: Implements the linear pipeline with the fallback state machine for search retry and the early-termination switch.
+- **Query Parsing**: I'll use an AI tool to write the `_parse_query` function, giving it the specific JSON schema required in the spec. I'll verify the output is strictly JSON by enforcing the `response_format`.
+- **estimate_price_fairness**: I'll manually implement the two-tier pricing logic to ensure exact control over the outlier protection (20%-300% median) and the keyword-based product detection.
+- **run_agent (Planning Loop)**: I'll give an AI tool the Architecture diagram and the Planning Loop section from `planning.md`. I'll verify that the generated code correctly branches on the `search_listings` results and implements the multi-step fallback retry logic before terminating early on persistent zero results.
 
 ---
 
