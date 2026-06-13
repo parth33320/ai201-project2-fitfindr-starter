@@ -156,7 +156,10 @@ def run_agent(query: str, wardrobe: dict, user_id: str = "default_user") -> dict
     session["trend_insights"] = get_current_trends()
 
     # Step 7: Call suggest_outfit()
-    raw_suggestion = suggest_outfit(session["selected_item"], session["wardrobe"], trends=session["trend_insights"])
+    if "wardrobe" not in session or not isinstance(session["wardrobe"], dict):
+        session["wardrobe"] = {}
+    session["wardrobe"]["trend_insights"] = session.get("trend_insights", [])
+    raw_suggestion = suggest_outfit(session["selected_item"], session["wardrobe"])
 
     # Parse extracted tags
     if "EXTRACTED_TAGS:" in raw_suggestion:
