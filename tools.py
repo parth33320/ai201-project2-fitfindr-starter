@@ -134,19 +134,27 @@ def suggest_outfit(new_item: dict, wardrobe: dict, trends: list[str] | None = No
     )
 
     items = wardrobe.get("items", [])
+    historical_preferences = wardrobe.get("historical_preferences", [])
 
     trend_context = ""
     if trends:
         trend_context = "Current fashion trends: " + ", ".join(trends) + "\n\n"
 
+    history_context = ""
+    if historical_preferences:
+        history_context = f"The user has a historical preference for these styles: {', '.join(historical_preferences)}.\n"
+
     if not items:
         prompt = (
             f"{trend_context}"
+            f"{history_context}"
             f"I just found this item secondhand:\n\n{item_info}\n\n"
             "My wardrobe is currently empty. Can you give me some general styling "
             "advice for this piece? What types of items would it pair well with, "
             "and what kind of vibe does it have? "
-            "Incorporate relevant current trends if they fit the vibe!"
+            "Incorporate relevant current trends if they fit the vibe!\n\n"
+            "If historical preferences are provided, use them to provide a specific, "
+            "prescriptive style formula tailored to those aesthetics."
         )
     else:
         wardrobe_info = "\n".join([
@@ -155,6 +163,7 @@ def suggest_outfit(new_item: dict, wardrobe: dict, trends: list[str] | None = No
         ])
         prompt = (
             f"{trend_context}"
+            f"{history_context}"
             f"I just found this item secondhand:\n\n{item_info}\n\n"
             "And here is my current wardrobe:\n"
             f"{wardrobe_info}\n\n"
@@ -162,6 +171,12 @@ def suggest_outfit(new_item: dict, wardrobe: dict, trends: list[str] | None = No
             "pieces from my wardrobe. Be creative but keep the style cohesive! "
             "Try to lean into current trends if they match the style of the item and wardrobe."
         )
+
+    prompt += (
+        "\n\nAt the end of your response, please provide 2-4 core style tags or "
+        "descriptive aesthetics that capture the vibe of this suggestion. "
+        "Format them exactly like this on a new line: EXTRACTED_TAGS: tag1, tag2"
+    )
 
     chat_completion = client.chat.completions.create(
         messages=[

@@ -22,11 +22,12 @@ import json
 import os
 from groq import Groq
 from tools import search_listings, suggest_outfit, create_fit_card, _get_groq_client, estimate_price_fairness, get_current_trends
+from utils.storage_helper import load_style_profile, save_style_profile
 
 
 # ── session state ─────────────────────────────────────────────────────────────
 
-def _new_session(query: str, wardrobe: dict) -> dict:
+def _new_session(query: str, wardrobe: dict, user_id: str = "default_user") -> dict:
     """
     Initialize and return a fresh session dict for one user interaction.
 
@@ -38,6 +39,7 @@ def _new_session(query: str, wardrobe: dict) -> dict:
     """
     return {
         "query": query,              # original user query
+        "user_id": user_id,          # user identifier for style memory
         "parsed": {},                # extracted description / size / max_price
         "search_results": [],        # list of matching listing dicts
         "selected_item": None,       # top result, passed into suggest_outfit
@@ -48,6 +50,7 @@ def _new_session(query: str, wardrobe: dict) -> dict:
         "trend_insights": None,      # string returned by get_current_trends
         "error": None,               # set if the interaction ended early
         "modifications": [],         # track changes made to filters during retry
+        "extracted_tags": [],        # tags extracted from the current run
     }
 
 
@@ -82,13 +85,19 @@ def _parse_query(query: str) -> dict:
 
     return json.loads(chat_completion.choices[0].message.content)
 
-def run_agent(query: str, wardrobe: dict) -> dict:
+def run_agent(query: str, wardrobe: dict, user_id: str = "default_user") -> dict:
     """
     Main agent entry point. Runs the FitFindr planning loop for a single
     user interaction and returns the completed session dict.
     """
-    # Step 1: Initialize the session
-    session = _new_session(query, wardrobe)
+    # Step 1: Initialize the session and Style Profile Injection
+    session = _new_session(query, wardrobe, user_id)
+
+    # Inject historical preferences if wardrobe is empty
+    if not wardrobe.get("items"):
+        historical_tags = load_style_profile(user_id)
+        if historical_tags:
+            session["wardrobe"]["historical_preferences"] = historical_tags
 
     # Step 2: Parse the user's query
     try:
@@ -147,12 +156,25 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     session["trend_insights"] = get_current_trends()
 
     # Step 7: Call suggest_outfit()
-    session["outfit_suggestion"] = suggest_outfit(session["selected_item"], wardrobe, trends=session["trend_insights"])
+    raw_suggestion = suggest_outfit(session["selected_item"], session["wardrobe"], trends=session["trend_insights"])
+
+    # Parse extracted tags
+    if "EXTRACTED_TAGS:" in raw_suggestion:
+        parts = raw_suggestion.split("EXTRACTED_TAGS:")
+        session["outfit_suggestion"] = parts[0].strip()
+        tags_str = parts[1].strip()
+        session["extracted_tags"] = [t.strip() for t in tags_str.split(",") if t.strip()]
+    else:
+        session["outfit_suggestion"] = raw_suggestion
 
     # Step 8: Call create_fit_card()
     session["fit_card"] = create_fit_card(session["outfit_suggestion"], session["selected_item"])
 
-    # Step 9: Return the session
+    # Step 9: Persist Style Profile Memory
+    if session["extracted_tags"]:
+        save_style_profile(user_id, session["extracted_tags"])
+
+    # Step 10: Return the session
     return session
 
 
