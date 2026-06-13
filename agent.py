@@ -111,25 +111,30 @@ def run_agent(query: str, wardrobe: dict) -> dict:
 
     if not results:
         # 1. Loosen Style (Assume description might be too specific)
-        session["modifications"].append("broadened style keywords")
-        # Simplify description to just the first two words (often category/main item)
-        simple_desc = " ".join(description.split()[:2])
-        results = search_listings(simple_desc, size, max_price)
+        tokens = description.split()
+        if len(tokens) > 1:
+            session["modifications"].append("broadened style keywords to find similar items")
+            simple_desc = " ".join(tokens[1:])
+            results = search_listings(simple_desc, size, max_price)
+        else:
+            simple_desc = description
 
         if not results:
             # 2. Loosen Price
-            session["modifications"].append("removed price limit")
-            results = search_listings(simple_desc, size, None)
+            if max_price is not None:
+                session["modifications"].append("removed price limit to find more options")
+                results = search_listings(simple_desc, size, None)
 
             if not results:
                 # 3. Loosen Size
-                session["modifications"].append("removed size filter")
-                results = search_listings(simple_desc, None, None)
+                if size is not None:
+                    session["modifications"].append("removed size filter to expand availability")
+                    results = search_listings(simple_desc, None, None)
 
     session["search_results"] = results
 
     if not results:
-        session["error"] = f"No results found for '{description}' even after loosening filters. Try a different search!"
+        session["error"] = "No items found matching your description even after broadening our filters. Try adjusting your primary item keywords or check back later!"
         return session
 
     # Step 4: Select the item (top result)
