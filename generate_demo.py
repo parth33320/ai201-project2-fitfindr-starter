@@ -88,10 +88,12 @@ def record_browser(durations):
     # Enable debug panel for demo
     my_env = os.environ.copy()
     my_env["FITFINDR_DEBUG"] = "true"
+    my_env["PYTHONPATH"] = os.getcwd() + ":" + my_env.get("PYTHONPATH", "")
     # Kill any existing app.py processes
     subprocess.run("pkill -f app.py", shell=True)
-    proc = subprocess.Popen(["python", "app.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=my_env)
-    time.sleep(10)
+    app_log = open("app_demo.log", "w")
+    proc = subprocess.Popen(["python", "app.py"], stdout=app_log, stderr=app_log, env=my_env)
+    time.sleep(30)
 
     os.makedirs("demo_assets/videos", exist_ok=True)
 
@@ -122,7 +124,8 @@ def record_browser(durations):
             page.get_by_label("User ID").fill("default_user")
             page.wait_for_timeout(2000)
             page.get_by_role("button", name="Find it").click()
-            page.wait_for_selector("text=Wrangler", timeout=60000)
+            # Hard wait for agent to finish
+            page.wait_for_timeout(30000)
 
             elapsed = time.time() - start_time
             remaining = (durations['intro_s1'] - elapsed)
@@ -139,7 +142,7 @@ def record_browser(durations):
             page.get_by_label("What are you looking for?").fill("vintage denim jacket")
             page.wait_for_timeout(1000)
             page.get_by_role("button", name="Find it").click()
-            page.wait_for_selector("text=Wrangler", timeout=60000)
+            page.wait_for_timeout(20000)
 
             # Scroll to Price Analysis
             page.evaluate("window.scrollTo(0, 600)")
@@ -159,7 +162,7 @@ def record_browser(durations):
             page.get_by_label("What are you looking for?").fill("designer ballgown size XXS under $5")
             page.wait_for_timeout(1000)
             page.get_by_role("button", name="Find it").click()
-            page.wait_for_selector("text=No results found", timeout=60000)
+            page.wait_for_timeout(15000)
 
             # Scroll to Debug Panel
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
@@ -177,6 +180,7 @@ def record_browser(durations):
             context.close()
             browser.close()
             proc.terminate()
+            app_log.close()
 
 def merge_video():
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
