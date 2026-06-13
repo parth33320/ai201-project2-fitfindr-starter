@@ -43,7 +43,31 @@ def handle_query(user_query: str, wardrobe_choice: str, user_id: str = "default_
     item = session.get("selected_item")
 
     # Format professional debug panel JSON
-    if session["error"] and not session.get("search_results"):
+    search_results = session.get("search_results", [])
+    if search_results and len(search_results) > 0:
+        item = search_results[0]
+        session_outfit_text = session.get("outfit_suggestion", "")
+        session_fit_card_text = session.get("fit_card", "")
+        debug_log = {
+            "active_query": user_query,
+            "execution_status": "pipeline_completed_successfully",
+            "tool_1_search_listings": {
+                "status": "success",
+                "returned_item_id": item.get("id"),
+                "item_title": item.get("title"),
+                "item_price_usd": item.get("price")
+            },
+            "tool_2_suggest_outfit": {
+                "status": "success",
+                "received_item_id": item.get("id"),
+                "generated_outfit_length_chars": len(session_outfit_text) if session_outfit_text else 0
+            },
+            "tool_3_create_fit_card": {
+                "status": "success",
+                "caption_generated": True if session_fit_card_text else False
+            }
+        }
+    else:
         debug_log = {
             "active_query": user_query,
             "execution_status": "pipeline_terminated_early",
@@ -60,26 +84,6 @@ def handle_query(user_query: str, wardrobe_choice: str, user_id: str = "default_
             "tool_3_create_fit_card": {
                 "status": "skipped",
                 "reason": "missing_upstream_outfit_data"
-            }
-        }
-    else:
-        debug_log = {
-            "active_query": user_query,
-            "execution_status": "pipeline_completed_successfully",
-            "tool_1_search_listings": {
-                "status": "success",
-                "returned_item_id": item.get("id") if item else None,
-                "item_title": item.get("title") if item else None,
-                "item_price_usd": item.get("price") if item else None
-            },
-            "tool_2_suggest_outfit": {
-                "status": "success",
-                "received_item_id": item.get("id") if item else None,
-                "generated_outfit_length_chars": len(session.get("outfit_suggestion", "")) if session.get("outfit_suggestion") else 0
-            },
-            "tool_3_create_fit_card": {
-                "status": "success",
-                "caption_generated": True if session.get("fit_card") else False
             }
         }
 
