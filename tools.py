@@ -108,7 +108,7 @@ def search_listings(
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
 
-def suggest_outfit(new_item: dict, wardrobe: dict, trends: list[str] | None = None) -> str:
+def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     """
     Given a thrifted item and the user's wardrobe, suggest 1–2 complete outfits.
 
@@ -116,7 +116,6 @@ def suggest_outfit(new_item: dict, wardrobe: dict, trends: list[str] | None = No
         new_item: A listing dict (the item the user is considering buying).
         wardrobe: A wardrobe dict with an 'items' key containing a list of
                   wardrobe item dicts. May be empty — handle this gracefully.
-        trends:   Optional list of current fashion trends to incorporate.
 
     Returns:
         A non-empty string with outfit suggestions.
@@ -135,6 +134,7 @@ def suggest_outfit(new_item: dict, wardrobe: dict, trends: list[str] | None = No
 
     items = wardrobe.get("items", [])
     historical_preferences = wardrobe.get("historical_preferences", [])
+    trends = wardrobe.get("trend_insights", [])
 
     trend_context = ""
     if trends:
